@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+playwright-report/
+test-results/
+.~lock*
+
+# Material del curso: se queda en la carpeta local, no se publica
+*.docx
+*.pdf
+*.jpeg
+*.jpg
+Laboratorios_Sesion3_instrucciones.txt

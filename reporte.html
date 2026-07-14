@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe de Laboratorio 3: Cacería de Bugs</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 25mm 20mm 25mm 20mm;
+      @bottom-right {
+        content: "Página " counter(page);
+        font-family: Arial, sans-serif;
+        font-size: 9pt;
+        color: #000000;
+      }
+      @bottom-left {
+        content: "Informe de Laboratorio 3 — Marianela Saravia Ortega";
+        font-family: Arial, sans-serif;
+        font-size: 9pt;
+        color: #000000;
+      }
+    }
+    
+    body {
+      font-family: Arial, sans-serif;
+      color: #000000;
+      line-height: 1.5;
+      font-size: 11pt;
+    }
+
+    h1, h2, h3, h4 {
+      color: #000000;
+      font-weight: bold;
+    }
+
+    h1 {
+      font-size: 22pt;
+      margin-top: 0;
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    h2 {
+      font-size: 14pt;
+      margin-top: 25px;
+      margin-bottom: 12px;
+      page-break-after: avoid;
+    }
+
+    h3 {
+      font-size: 12pt;
+      margin-top: 15px;
+      margin-bottom: 8px;
+      page-break-after: avoid;
+    }
+
+    p {
+      margin-top: 0;
+      margin-bottom: 12px;
+      text-align: justify;
+      color: #000000;
+    }
+
+    ul {
+      margin-top: 0;
+      margin-bottom: 12px;
+      padding-left: 20px;
+      color: #000000;
+    }
+
+    li {
+      margin-bottom: 5px;
+    }
+
+    /* Portada simple de estudiante */
+    .cover {
+      text-align: center;
+      padding-top: 80px;
+      height: 100%;
+      page-break-after: always;
+    }
+
+    .cover-title {
+      font-size: 24pt;
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+
+    .cover-subtitle {
+      font-size: 14pt;
+      margin-bottom: 80px;
+    }
+
+    .cover-metadata {
+      margin-top: 200px;
+      font-size: 11pt;
+      line-height: 1.8;
+      text-align: left;
+      display: inline-block;
+    }
+
+    /* Bloques de código sencillos en blanco y negro */
+    code {
+      font-family: monospace;
+      background-color: #f3f4f6;
+      padding: 1px 3px;
+      font-size: 9.5pt;
+      color: #000000;
+    }
+
+    pre {
+      background-color: #f9fafb;
+      border: 1px solid #000000;
+      padding: 10px;
+      font-family: monospace;
+      font-size: 9.5pt;
+      white-space: pre-wrap;
+      margin: 12px 0;
+      color: #000000;
+    }
+
+    /* Imágenes con marco negro simple */
+    .image-block {
+      text-align: center;
+      margin: 18px 0;
+      page-break-inside: avoid;
+    }
+
+    .image-block img {
+      max-width: 95%;
+      height: auto;
+      max-height: 300px;
+      border: 1px solid #000000;
+    }
+
+    .image-caption {
+      font-size: 9pt;
+      margin-top: 6px;
+      font-style: italic;
+      color: #000000;
+    }
+
+    .page-break {
+      page-break-before: always;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- PORTADA -->
+  <div class="cover">
+    <div style="font-weight: bold; font-size: 12pt; margin-bottom: 50px;">
+      DIPLOMADO EN DESARROLLO DE APLICACIONES WEB Y MÓVILES
+    </div>
+    <div style="margin-top: 80px;">
+      <h1 class="cover-title" style="border: none;">INFORME DE LABORATORIO 3</h1>
+      <div class="cover-subtitle">Cacería de Bugs con Vitest y Supertest</div>
+    </div>
+    <div class="cover-metadata">
+      <strong>Módulo:</strong> Módulo 4: Integración y Despliegue Continuo<br>
+      <strong>Sesión:</strong> Sesión 3<br>
+      <strong>Docente:</strong> Walter Miranda Salazar<br>
+      <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+      <strong>Fecha de entrega:</strong> 10 de julio de 2026
+    </div>
+  </div>
+
+  <!-- INTRODUCCIÓN -->
+  <h2>1. Introducción</h2>
+  <p>
+    En la clase correspondiente a la Sesión 3 del Módulo 4, avanzamos en el tema de las pruebas de software para APIs construidas con Express. Vimos cómo usar Vitest y la librería Supertest para simular peticiones HTTP sin tener que levantar el servidor localmente en cada prueba. 
+  </p>
+  <p>
+    Para poner esto en práctica, realizamos el Laboratorio 3 llamado "Cacería de Bugs". Este ejercicio consistía en recibir un código con un bug en un endpoint de creación de tareas, escribir una prueba que demuestre que el error existe y después corregirlo. En este informe explico paso a paso lo que hice en el código y cómo logré superar las pruebas, incluyendo los puntos del reto adicional.
+  </p>
+
+  <!-- RONDA 1 -->
+  <h2>2. Ronda 1: Escribir la prueba y reproducir el error</h2>
+  <p>
+    Primero instalé las dependencias del proyecto (express, vitest y supertest) y preparé los archivos base. Escribí una primera prueba en el archivo <code>test/app.test.js</code>. Esta prueba hace una petición POST al endpoint <code>/tareas</code> con un título específico y espera que el servidor responda con un estado 201 y devuelva los datos de la tarea creada.
+  </p>
+  <p>
+    Al correr el comando <code>npm run test</code> en la terminal, la prueba falló. Esto ocurrió porque el servidor estaba devolviendo un estado 200 en lugar del 201 que se esperaba, y además respondía con un mensaje estático que no contenía el título de la tarea. En las siguientes imágenes se puede ver el error en la terminal y la parte del código de <code>src/app.js</code> que tenía el bug.
+  </p>
+
+  <div class="image-block">
+    <img src="/home/nelita/Documentos/Diplomado_Desarrollo/MOD4/WhatsApp Image 2026-07-10 at 8.07.16 PM.jpeg" alt="Fallo del test inicial">
+    <div class="image-caption">Imagen 1: Terminal de VS Code mostrando que la prueba falló (se esperaba 201 pero llegó 200).</div>
+  </div>
+
+  <div class="image-block">
+    <img src="/home/nelita/Documentos/Diplomado_Desarrollo/MOD4/WhatsApp Image 2026-07-10 at 8.10.09 PM.jpeg" alt="Código con error">
+    <div class="image-caption">Imagen 2: Código original de app.js mostrando la respuesta incorrecta del servidor en la línea 18.</div>
+  </div>
+
+  <div class="page-break"></div>
+
+  <!-- RONDA 2 Y 3 -->
+  <h2>3. Ronda 2 y 3: Corregir el bug y verificación básica</h2>
+  <p>
+    Para solucionar el bug, abrí el archivo <code>src/app.js</code> y modifiqué la respuesta del endpoint POST. Cambié la línea de respuesta para que use el código de estado 201 y envíe el objeto de la tarea creada (que llamamos <code>nuevaTarea</code>) en formato JSON.
+  </p>
+  <p>
+    Después de guardar el archivo, ejecuté de nuevo el comando de pruebas en la terminal de VS Code. Como se muestra en la Imagen 3, la prueba pasó satisfactoriamente y la terminal se puso en verde, indicando que el primer bug fue resuelto correctamente.
+  </p>
+
+  <div class="image-block">
+    <img src="/home/nelita/Documentos/Diplomado_Desarrollo/MOD4/WhatsApp Image 2026-07-10 at 8.12.03 PM.jpeg" alt="Prueba superada">
+    <div class="image-caption">Imagen 3: Servidor corregido y terminal mostrando la prueba aprobada.</div>
+  </div>
+
+  <!-- RETO EXTRA -->
+  <h2>4. Reto extra: Validación y pruebas adicionales (Triple Verde)</h2>
+  <p>
+    Para completar los requisitos del reto adicional y ganar los 15 puntos extras de la insignia "Triple Verde", agregué las siguientes dos funcionalidades al código:
+  </p>
+  <ul>
+    <li>Una ruta <code>GET /tareas</code> para listar todas las tareas guardadas en la memoria.</li>
+    <li>Una validación en el POST para revisar que el título de la tarea no llegue vacío. Si llega vacío, el servidor ahora responde con un código de error 400 (Bad Request).</li>
+  </ul>
+  <p>
+    Escribí las pruebas correspondientes para estos dos casos en el archivo de pruebas y luego implementé el código necesario en el servidor. Al correr nuevamente la suite de pruebas completa, las tres pruebas pasaron al mismo tiempo sin problemas, como se ve en la Imagen 4.
+  </p>
+
+  <div class="image-block">
+    <img src="/home/nelita/Documentos/Diplomado_Desarrollo/MOD4/WhatsApp Image 2026-07-10 at 8.15.13 PM.jpeg" alt="Triple verde conseguido">
+    <div class="image-caption">Imagen 4: Implementación final en app.js y las tres pruebas pasando en verde en la terminal.</div>
+  </div>
+
+</body>
+</html>
