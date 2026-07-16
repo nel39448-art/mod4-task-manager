@@ -1,18 +1,25 @@
 import express from 'express';
+import { getStore } from './store/index.js';
 
-const tareas = [];
 const app = express();
-app.locals.tareas = tareas;
 
 app.use(express.json());
 
+// Exponer el array en memoria vía app.locals para que las pruebas puedan
+// resetear el estado entre casos (solo aplica al almacén en memoria).
+getStore().then((store) => {
+  if (store._tareas) app.locals.tareas = store._tareas;
+});
+
 // Obtener la lista de todas las tareas
-app.get('/tareas', (req, res) => {
+app.get('/tareas', async (req, res) => {
+  const store = await getStore();
+  const tareas = await store.listar();
   res.status(200).json(tareas);
 });
 
 // Crear una tarea con validación de datos
-app.post('/tareas', (req, res) => {
+app.post('/tareas', async (req, res) => {
   const { titulo } = req.body;
 
   // Validación: el título no puede estar vacío
@@ -20,32 +27,30 @@ app.post('/tareas', (req, res) => {
     return res.status(400).json({ error: 'El título es obligatorio' });
   }
 
-  const nuevaTarea = { id: tareas.length + 1, titulo, completada: false };
-  tareas.push(nuevaTarea);
-
+  const store = await getStore();
+  const nuevaTarea = await store.crear(titulo);
   res.status(201).json(nuevaTarea);
 });
 
 // Actualizar una tarea (marcar completada o cambiar título)
-app.put('/tareas/:id', (req, res) => {
+app.put('/tareas/:id', async (req, res) => {
   const { id } = req.params;
-  const updates = req.body;
-  const indice = tareas.findIndex(t => t.id === Number(id));
-  if (indice === -1) {
+  const store = await getStore();
+  const actualizada = await store.actualizar(id, req.body);
+  if (!actualizada) {
     return res.status(404).json({ error: 'Tarea no encontrada' });
   }
-  tareas[indice] = { ...tareas[indice], ...updates };
-  res.json(tareas[indice]);
+  res.json(actualizada);
 });
 
 // Eliminar una tarea
-app.delete('/tareas/:id', (req, res) => {
+app.delete('/tareas/:id', async (req, res) => {
   const { id } = req.params;
-  const indice = tareas.findIndex(t => t.id === Number(id));
-  if (indice === -1) {
+  const store = await getStore();
+  const eliminada = await store.eliminar(id);
+  if (!eliminada) {
     return res.status(404).json({ error: 'Tarea no encontrada' });
   }
-  tareas.splice(indice, 1);
   res.status(204).end();
 });
 

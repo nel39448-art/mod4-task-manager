@@ -5,9 +5,15 @@ playwright-report/
 test-results/
 .~lock*
 
+# Variables de entorno con valores reales (nunca se suben)
+.env
+
 # Material del curso: se queda en la carpeta local, no se publica
 *.docx
 *.pdf
 *.jpeg
 *.jpg
 Laboratorios_Sesion3_instrucciones.txt
+
+# Excepción: el informe entregable de la Sesión 4 sí se publica
+!Informe_Sesion4.pdf

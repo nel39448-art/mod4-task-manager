@@ -21,6 +21,9 @@ export default defineConfig({
         'src/test/**',
         'src/main.jsx',
         'src/server.js',
+        // Adaptador de PostgreSQL: camino de runtime (necesita DB real),
+        // se verifica con el E2E de Docker, no con pruebas unitarias.
+        'src/store/postgres.js',
         '*.config.js',
       ],
       thresholds: {
