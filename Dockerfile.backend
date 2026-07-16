@@ -1,0 +1,18 @@
+# Dockerfile del backend (Node/Express + Prisma)
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Copiar manifiestos y el esquema de Prisma antes del resto del código:
+# así la capa de dependencias (npm ci → postinstall: prisma generate) se
+# reutiliza mientras no cambien las dependencias ni el esquema.
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci
+
+# Copiar el resto del código de la aplicación
+COPY . .
+
+EXPOSE 4000
+
+CMD ["node", "src/server.js"]
