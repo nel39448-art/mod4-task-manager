@@ -15,5 +15,5 @@ test-results/
 *.jpg
 Laboratorios_Sesion3_instrucciones.txt
 
-# Excepción: el informe entregable de la Sesión 4 sí se publica
-!Informe_Sesion4.pdf
+# Excepción: los informes entregables de cada sesión sí se publican
+!Informe_Sesion*.pdf

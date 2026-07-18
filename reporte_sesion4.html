@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe Sesión 4: Pruebas E2E, Cobertura y Quality Gate</title>
+  <style>
+    @page { size: letter; margin: 25mm 20mm 25mm 20mm; }
+
+    body {
+      font-family: Arial, sans-serif;
+      color: #000000;
+      line-height: 1.5;
+      font-size: 11pt;
+    }
+
+    h1, h2, h3 { color: #000000; font-weight: bold; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 18px; text-align: center; }
+    h2 { font-size: 14pt; margin-top: 24px; margin-bottom: 10px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin-top: 14px; margin-bottom: 8px; page-break-after: avoid; }
+
+    p { margin-top: 0; margin-bottom: 11px; text-align: justify; }
+    ul { margin-top: 0; margin-bottom: 11px; padding-left: 20px; }
+    li { margin-bottom: 4px; }
+
+    .cover { text-align: center; padding-top: 80px; height: 100%; page-break-after: always; }
+    .cover-title { font-size: 24pt; margin-bottom: 15px; font-weight: bold; }
+    .cover-subtitle { font-size: 14pt; margin-bottom: 60px; }
+    .cover-metadata {
+      margin-top: 180px;
+      font-size: 11pt;
+      line-height: 1.8;
+      text-align: left;
+      display: inline-block;
+    }
+
+    code {
+      font-family: monospace;
+      background-color: #f3f4f6;
+      padding: 1px 3px;
+      font-size: 9.5pt;
+    }
+
+    pre {
+      background-color: #f9fafb;
+      border: 1px solid #000000;
+      padding: 9px;
+      font-family: monospace;
+      font-size: 8.5pt;
+      white-space: pre-wrap;
+      margin: 11px 0;
+      page-break-inside: avoid;
+    }
+
+    .image-block { text-align: center; margin: 14px 0; page-break-inside: avoid; }
+    .image-block img {
+      max-width: 100%;
+      height: auto;
+      max-height: 260px;
+      border: 1px solid #000000;
+    }
+    .image-caption { font-size: 9pt; margin-top: 5px; font-style: italic; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 11px 0;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    th, td { border: 1px solid #000000; padding: 5px 8px; text-align: left; }
+    th { background-color: #f3f4f6; font-weight: bold; }
+
+    .nota {
+      border: 1px solid #000000;
+      background-color: #f9fafb;
+      padding: 9px 11px;
+      margin: 13px 0;
+      page-break-inside: avoid;
+    }
+
+    .seccion { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-title">Informe de Laboratorios — Sesión 4</div>
+  <div class="cover-subtitle">Pruebas E2E, Cobertura y Quality Gate</div>
+  <div class="cover-metadata">
+    <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+    <strong>Módulo:</strong> 4 — Integración Continua y Calidad<br>
+    <strong>Proyecto:</strong> Gestor de Tareas (React + Express)<br>
+    <strong>Repositorio:</strong> github.com/nel39448-art/mod4-task-manager<br>
+    <strong>Revisor cruzado:</strong> Cypher-dev-bo<br>
+    <strong>Fecha:</strong> 14 de julio de 2026
+  </div>
+</div>
+
+<h1>Introducción</h1>
+
+<p>Esta sesión cierra la Unidad 2 del módulo. El objetivo era que el proyecto no solo se
+pruebe, sino que además <strong>se mida</strong> (cobertura) y <strong>se proteja solo</strong>:
+que sea el propio sistema, y no una revisión manual, el que decida si un cambio puede entrar a
+la rama principal.</p>
+
+<p>El trabajo se hizo sobre el gestor de tareas construido en las sesiones anteriores: un
+frontend en React con Vite y un backend en Express con una API REST de tareas. Sobre esa base
+se añadieron tres piezas: una prueba de extremo a extremo con Playwright, un reporte de
+cobertura con umbral mínimo, y un pipeline de integración continua que actúa como
+<em>quality gate</em> en cada Pull Request.</p>
+
+<h2>Preparación previa</h2>
+
+<p>Antes de empezar los laboratorios hubo que resolver dos problemas heredados del proyecto:</p>
+
+<ul>
+  <li>El archivo <code>src/app.js</code> exportaba la aplicación de Express pero nunca llamaba
+      a <code>app.listen()</code>, de modo que el backend jamás se levantaba. Se creó
+      <code>src/server.js</code> para arrancarlo, dejando <code>app.js</code> intacto para que
+      las pruebas de API con Supertest lo sigan importando sin abrir un puerto.</li>
+  <li>El puerto 3000 estaba ocupado por otro servidor de desarrollo, así que la API de tareas
+      se movió al puerto 3001 y se ajustó el proxy de Vite en consecuencia.</li>
+</ul>
+
+<p>Además se añadió ESLint y el script de <code>build</code>, que faltaban para poder exigir
+lint y compilación en el pipeline.</p>
+
+<div class="seccion">
+<h1>Laboratorio 1 — Playwright y el test E2E</h1>
+
+<p>Una prueba de extremo a extremo (E2E) no simula piezas aisladas: abre un navegador real,
+carga la aplicación y la usa como lo haría una persona.</p>
+
+<h2>Paso 1.1 — Instalación y configuración</h2>
+
+<p>Se instaló Playwright y se configuró <code>playwright.config.js</code> con la URL base del
+proyecto y un bloque <code>webServer</code>, que hace que Playwright levante la aplicación por
+su cuenta antes de correr las pruebas.</p>
+
+<pre>// playwright.config.js
+export default defineConfig({
+  testDir: './e2e',
+  use: { baseURL: 'http://localhost:5173' },
+  webServer: {
+    command: 'npm run dev',
+    url: 'http://localhost:5173',
+    reuseExistingServer: !process.env.CI,
+  },
+})</pre>
+
+<h2>Paso 1.2 — La prueba del flujo feliz</h2>
+
+<p>La prueba recorre el flujo completo: entrar a la aplicación, crear una tarea y verificar que
+aparece en la lista.</p>
+
+<pre>// e2e/flujo-tareas.spec.js
+test('un usuario puede crear una tarea y verla en la lista', async ({ page }) => {
+  await page.goto('/')
+  await page.getByLabel('Nueva tarea').fill('Comprar pan')
+  await page.getByRole('button', { name: 'Agregar' }).click()
+  await expect(page.getByText('Comprar pan')).toBeVisible()
+})</pre>
+
+<p>Se usan <code>getByLabel</code> y <code>getByRole</code> en lugar de selectores CSS. La
+diferencia importa: un selector CSS se rompe en cuanto alguien cambia una clase de estilo,
+mientras que buscar el elemento por su etiqueta visible o su rol es la forma en que lo
+encontraría una persona real. La prueba sobrevive a los rediseños que no cambian el
+comportamiento.</p>
+
+<h2>Paso 1.3 — Ejecución y reporte</h2>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-2-reporte-playwright.png" alt="Reporte HTML de Playwright con la prueba en verde">
+  <div class="image-caption">Figura 1. Reporte de Playwright (<code>npx playwright show-report</code>): 1 passed, 0 failed.</div>
+</div>
+
+<div class="nota">
+<strong>Un tropiezo que vale la pena anotar.</strong> Al principio la prueba fallaba en el
+último paso: la tarea no aparecía nunca. La causa no era Playwright sino el backend, que no
+estaba escuchando porque faltaba el <code>app.listen()</code>. La prueba E2E detectó, en su
+primera ejecución, un fallo real que ninguna de las pruebas unitarias de la Sesión 3 había
+visto — precisamente porque esas pruebas nunca levantan la aplicación de verdad.
+</div>
+
+<p>Un segundo detalle de configuración: Vitest recoge por defecto los archivos
+<code>*.spec.js</code>, así que intentaba ejecutar la prueba de Playwright y fallaba. Hubo que
+excluir la carpeta <code>e2e/</code> en <code>vitest.config.js</code> para que cada herramienta
+corra solo lo suyo.</p>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 2 — Reporte de cobertura</h1>
+
+<p>La cobertura mide qué porcentaje del código llegan a ejecutar las pruebas. Se instaló el
+proveedor <code>@vitest/coverage-v8</code> y, sobre todo, se configuró un bloque
+<code>thresholds</code> con umbrales mínimos.</p>
+
+<div class="nota">
+<strong>Por qué el umbral es la parte que importa.</strong> Sin <code>thresholds</code>, Vitest
+se limita a informar el porcentaje y el pipeline sigue en verde aunque la cobertura se
+desplome. Con el umbral configurado, el comando devuelve error si no se alcanza — y eso es lo
+que convierte la cobertura en una condición real del quality gate, y no en un número decorativo.
+</div>
+
+<h2>Paso 2.1 — Resultado obtenido</h2>
+
+<table>
+  <tr><th>Métrica</th><th>Obtenido</th><th>Umbral mínimo</th><th>Estado</th></tr>
+  <tr><td>Statements</td><td>70.92 %</td><td>60 %</td><td>Cumple</td></tr>
+  <tr><td>Branches</td><td>92.10 %</td><td>50 %</td><td>Cumple</td></tr>
+  <tr><td>Functions</td><td>93.33 %</td><td>60 %</td><td>Cumple</td></tr>
+  <tr><td>Lines</td><td>70.92 %</td><td>60 %</td><td>Cumple</td></tr>
+</table>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-6-reporte-cobertura.png" alt="Resumen del reporte de cobertura">
+  <div class="image-caption">Figura 2. Resumen del reporte HTML de cobertura (<code>coverage/index.html</code>).</div>
+</div>
+
+<h2>Paso 2.2 — La zona sin probar</h2>
+
+<p>El reporte deja al descubierto un archivo en rojo: <code>src/App.jsx</code>, con
+<strong>0 % de cobertura</strong>. Es el componente que orquesta toda la aplicación —carga las
+tareas al montar y coordina crear, completar y eliminar—, y ninguna prueba unitaria lo monta.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-7-lineas-en-rojo-App.png" alt="App.jsx con todas las líneas en rojo">
+  <div class="image-caption">Figura 3. <code>src/App.jsx</code> al 0 %: todas las líneas sin ejecutar, incluidos los tres bloques <code>catch</code>.</div>
+</div>
+
+<p>Lo relevante no es el número, sino <em>qué</em> es lo que queda sin probar. Los tres
+<code>catch</code> del componente hoy solo hacen <code>console.error</code>: si la API falla, el
+usuario no ve ningún mensaje de error, y ninguna prueba lo detectaría. La prueba E2E cubre este
+archivo de forma indirecta, pero solo por el camino feliz; el camino triste —la API caída—
+sigue sin ejercitarse. También quedan sin cubrir los dos <code>return res.status(404)</code> de
+<code>src/app.js</code>, es decir, el caso de "la tarea no existe".</p>
+
+<h2>Paso 2.3 — Respuestas a las preguntas guía</h2>
+
+<ul>
+  <li><strong>¿Hay manejo de errores que nunca se ejecuta?</strong> Sí: los <code>catch</code>
+      de <code>App.jsx</code> y los dos 404 de la API.</li>
+  <li><strong>¿100 % de cobertura significa perfectamente probado?</strong> No.
+      <code>src/utils/validaciones.js</code> marca 100 %, pero eso solo dice que cada línea se
+      ejecutó, no que las aserciones comprueben algo significativo. La cobertura mide ejecución,
+      no calidad de la verificación.</li>
+  <li><strong>¿Qué archivo preocuparía más con 0 %?</strong> Uno con lógica de negocio, no uno
+      de configuración. Por eso <code>vite.config.js</code>, <code>src/main.jsx</code> y
+      <code>src/server.js</code> se excluyeron del cálculo: inflarían el porcentaje sin decir
+      nada sobre el riesgo real.</li>
+</ul>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 3 — Tribunal de Calidad</h1>
+
+<h2>Etapa 1 — Integrar las pruebas al pipeline</h2>
+
+<p>El archivo <code>.github/workflows/ci.yml</code> quedó con cuatro trabajos que se ejecutan en
+cada Pull Request contra <code>main</code>: <strong>Lint</strong>, <strong>Build</strong>,
+<strong>Pruebas unitarias y cobertura</strong> y <strong>Pruebas E2E</strong>. Los dos primeros
+venían de la Sesión 2; los dos últimos son el aporte de esta sesión.</p>
+
+<pre>pruebas:
+  name: Pruebas unitarias y cobertura
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with: { node-version: '20', cache: 'npm' }
+    - run: npm ci
+    - run: npx vitest run --coverage
+
+e2e:
+  name: Pruebas E2E
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with: { node-version: '20', cache: 'npm' }
+    - run: npm ci
+    - run: npx playwright install --with-deps chromium
+    - run: npx playwright test</pre>
+
+<p>El cambio se subió a la rama <code>feature/quality-gate</code> y se abrió el Pull Request #1,
+donde los cuatro trabajos terminaron en verde.</p>
+
+<h2>Etapa 2 — Activar el Quality Gate</h2>
+
+<p>Con los trabajos ya ejecutados al menos una vez, en <em>Settings → Branches</em> se editó la
+regla de protección de <code>main</code> y se seleccionaron los cuatro checks como
+obligatorios, además de mantener la aprobación de un revisor heredada de la Sesión 1.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-5-status-checks-obligatorios.png" alt="Los cuatro status checks marcados como obligatorios">
+  <div class="image-caption">Figura 4. Regla de protección de <code>main</code>: los cuatro status checks obligatorios y "Require approvals: 1".</div>
+</div>
+
+<p>Desde la Sesión 1 esta casilla estaba activada pero vacía: nadie la respaldaba con checks
+reales. A partir de aquí, GitHub bloquea físicamente el botón de merge de cualquier Pull
+Request si el lint, el build, las pruebas, la cobertura o el E2E fallan.</p>
+
+<h2>Etapa 3 — El caso culpable</h2>
+
+<p>Para comprobar que el gate no es decorativo, se rompió una prueba a propósito en la rama
+<code>feature/caso-culpable</code>: la aserción de <code>rechaza un correo sin arroba</code>
+pasó de <code>toBe(false)</code> a <code>toBe(true)</code>.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-3-run-en-rojo.png" alt="Ejecución de CI con el job de pruebas en rojo">
+  <div class="image-caption">Figura 5. El pipeline detecta el sabotaje: Lint y Build en verde, <strong>Pruebas unitarias y cobertura en rojo</strong>, E2E en verde.</div>
+</div>
+
+<p>La anotación del propio GitHub señala el punto exacto del delito:</p>
+
+<pre>test/validaciones.test.js > esCorreoValido > rechaza un correo sin arroba
+AssertionError: expected false to be true
+  test/validaciones.test.js:17:23</pre>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-4-pr2-merge-bloqueado.png" alt="Pull Request con el merge bloqueado">
+  <div class="image-caption">Figura 6. "Merging is blocked": el botón de <em>Merge pull request</em> queda deshabilitado.</div>
+</div>
+
+<h2>Etapa 4 — Apelación, revisión cruzada y veredicto</h2>
+
+<p>Se corrigió la aserción y se subió el arreglo sobre la misma rama. Los cuatro checks
+volvieron a verde. Como la regla exige además la aprobación de un revisor con permiso de
+escritura —y GitHub no permite aprobar el propio Pull Request—, se invitó como colaboradora a
+<strong>Cypher-dev-bo</strong>, que revisó y aprobó ambos Pull Requests.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-9-pr2-aprobado-listo.png" alt="Pull Request aprobado y listo para mergear">
+  <div class="image-caption">Figura 7. El veredicto: <em>Changes approved</em> (1 revisión), <em>All checks have passed</em> (4 checks) y el botón de merge ya en verde.</div>
+</div>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-10-merge-completado.png" alt="Pull request successfully merged and closed">
+  <div class="image-caption">Figura 8. Merge completado: <em>"Pull request successfully merged and closed"</em>, con la aprobación de Cypher-dev-bo y los 4 checks pasados.</div>
+</div>
+
+<h2>Resultado en la rama principal</h2>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-11-main-con-merges.png" alt="Historial de commits de main">
+  <div class="image-caption">Figura 9. El historial de <code>main</code> cuenta la historia completa: el commit culpable con <strong>3/4</strong> checks, el arreglo con <strong>4/4</strong>, y los dos merges.</div>
+</div>
+
+<div class="image-block">
+  <img src="capturas/captura-s4-12-prs-mergeados.png" alt="Los dos Pull Requests cerrados y mergeados">
+  <div class="image-caption">Figura 10. Los dos Pull Requests, mergeados y aprobados.</div>
+</div>
+</div>
+
+<div class="seccion">
+<h1>Conclusiones</h1>
+
+<p>Lo que más enseña de esta sesión no es la configuración en sí, sino tres cosas que
+ocurrieron por el camino.</p>
+
+<p><strong>La prueba E2E encontró en su primer intento un fallo real</strong> —el backend que
+nunca arrancaba— que dieciséis pruebas unitarias en verde no habían detectado. Cada nivel de
+prueba ve cosas distintas, y las unitarias pueden estar todas en verde sobre una aplicación que
+no funciona.</p>
+
+<p><strong>La cobertura es útil precisamente cuando no sale bien.</strong> El 70 % global no
+dice gran cosa; lo que dice algo es que <code>App.jsx</code> esté al 0 % y que sus
+<code>catch</code> nunca se ejecuten, porque eso significa que hoy la aplicación puede fallar en
+silencio delante del usuario y ninguna prueba se enteraría. Un número alto tranquiliza; un
+número honesto señala dónde trabajar.</p>
+
+<p><strong>El gate se comportó como debía cuando se lo puso a prueba.</strong> Un cambio con una
+sola aserción rota quedó bloqueado sin que ninguna persona tuviera que revisarlo, y el merge
+solo se desbloqueó cuando el arreglo devolvió los cuatro checks a verde y llegó la aprobación
+del revisor. Ese es el punto: el merge final no fue legítimo porque alguien confiara en el
+código, sino porque el sistema completo —lint, build, pruebas, cobertura y E2E— confirmó
+automáticamente que el cambio era seguro.</p>
+
+<h2>Estado del entregable</h2>
+
+<table>
+  <tr><th>Requisito</th><th>Estado</th></tr>
+  <tr><td>Prueba E2E con Playwright en verde, cubriendo el flujo feliz completo</td><td>Cumplido (Figura 1)</td></tr>
+  <tr><td>Reporte de cobertura generado, con umbral mínimo en <code>vitest.config.js</code></td><td>Cumplido (Figuras 2 y 3)</td></tr>
+  <tr><td>El <code>ci.yml</code> corre lint, build, pruebas con cobertura y E2E en cada PR</td><td>Cumplido</td></tr>
+  <tr><td>Status checks obligatorios seleccionados en Settings → Branches</td><td>Cumplido (Figura 4)</td></tr>
+  <tr><td>Pull Request bloqueado por un check en rojo</td><td>Cumplido (Figuras 5 y 6)</td></tr>
+  <tr><td>Merge real a <code>main</code> con todos los checks en verde</td><td>Cumplido (Figuras 7 a 10)</td></tr>
+</table>
+
+<h2>Insignias obtenidas</h2>
+
+<ul>
+  <li><strong>Guardián del Quality Gate</strong> — los status checks quedaron correctamente
+      configurados y se demostró que un Pull Request con pruebas rotas queda bloqueado
+      (Figuras 4, 5 y 6).</li>
+  <li><strong>Primer Merge Legítimo</strong> — merge real a <code>main</code> con los cuatro
+      checks en verde y la aprobación del revisor cruzado (Figuras 7 a 10).</li>
+</ul>
+</div>
+
+</body>
+</html>
