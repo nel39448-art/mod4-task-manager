@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe Sesión 6: Migraciones y Seeds en el Pipeline; Gestión de Secretos</title>
+  <style>
+    @page { size: letter; margin: 25mm 20mm 25mm 20mm; }
+
+    body { font-family: Arial, sans-serif; color: #000000; line-height: 1.5; font-size: 11pt; }
+
+    h1, h2, h3 { color: #000000; font-weight: bold; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 18px; text-align: center; }
+    h2 { font-size: 14pt; margin-top: 24px; margin-bottom: 10px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin-top: 14px; margin-bottom: 8px; page-break-after: avoid; }
+
+    p { margin-top: 0; margin-bottom: 11px; text-align: justify; }
+    ul { margin-top: 0; margin-bottom: 11px; padding-left: 20px; }
+    li { margin-bottom: 4px; }
+
+    .cover { text-align: center; padding-top: 80px; height: 100%; page-break-after: always; }
+    .cover-title { font-size: 24pt; margin-bottom: 15px; font-weight: bold; }
+    .cover-subtitle { font-size: 14pt; margin-bottom: 60px; }
+    .cover-metadata { margin-top: 180px; font-size: 11pt; line-height: 1.8; text-align: left; display: inline-block; }
+
+    code { font-family: monospace; background-color: #f3f4f6; padding: 1px 3px; font-size: 9.5pt; }
+
+    pre.terminal {
+      background-color: #1e1e1e; color: #e6e6e6; border: 1px solid #000000;
+      padding: 10px 12px; font-family: 'Courier New', monospace; font-size: 8pt;
+      line-height: 1.35; white-space: pre; overflow-x: hidden; margin: 11px 0;
+      page-break-inside: avoid; border-radius: 4px;
+    }
+    pre.code {
+      background-color: #f9fafb; border: 1px solid #000000; padding: 9px;
+      font-family: monospace; font-size: 8.5pt; white-space: pre-wrap; margin: 11px 0;
+      page-break-inside: avoid;
+    }
+
+    .image-block { text-align: center; margin: 14px 0; page-break-inside: avoid; }
+    .image-block img { max-width: 100%; height: auto; max-height: 300px; border: 1px solid #000000; }
+    .image-caption { font-size: 9pt; margin-top: 5px; font-style: italic; }
+
+    table { width: 100%; border-collapse: collapse; margin: 11px 0; font-size: 10pt; page-break-inside: avoid; }
+    th, td { border: 1px solid #000000; padding: 5px 8px; text-align: left; }
+    th { background-color: #f3f4f6; font-weight: bold; }
+
+    .seccion { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-title">Informe de Laboratorios — Sesión 6</div>
+  <div class="cover-subtitle">Migraciones y Seeds en el Pipeline; Gestión de Secretos</div>
+  <div class="cover-metadata">
+    <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+    <strong>Módulo:</strong> 4 — Integración y Despliegue Continuo<br>
+    <strong>Proyecto:</strong> Gestor de Tareas (React + Express + PostgreSQL)<br>
+    <strong>Repositorio:</strong> github.com/nel39448-art/mod4-task-manager<br>
+    <strong>Revisor cruzado:</strong> Cypher-dev-bo<br>
+    <strong>Fecha:</strong> 17 de julio de 2026
+  </div>
+</div>
+
+<h1>Introducción</h1>
+
+<p>En esta sesión hice dos cosas en el pipeline: que aplique el esquema de la base de datos por su
+cuenta (migraciones y seed contra un PostgreSQL de prueba) y que ninguna credencial quede escrita
+en texto plano en el repositorio.</p>
+
+<p>El proyecto ya traía PostgreSQL y Prisma de la Sesión 5, con las migraciones versionadas en git,
+así que partí de ahí. Como la app no tiene autenticación, la única variable sensible es
+<code>DATABASE_URL</code> (lleva usuario y contraseña); no hay un <code>JWT_SECRET</code> como
+supone la guía, así que trabajé solo con <code>DATABASE_URL</code>.</p>
+
+<div class="seccion">
+<h1>Laboratorio 1 — Variables en GitHub Secrets</h1>
+
+<p>Guardé <code>DATABASE_URL</code> como secreto del repositorio en <em>Settings → Secrets and
+variables → Actions</em>. El pipeline lo lee con <code>${{ secrets.DATABASE_URL }}</code> y agregué
+un paso que confirma que el secreto está disponible sin imprimir su valor.</p>
+
+<pre class="code"># .github/workflows/ci.yml (paso del job de migraciones)
+- name: Verificar secreto DATABASE_URL (sin exponerlo)
+  env:
+    SECRET_DB_URL: ${{ secrets.DATABASE_URL }}
+  run: |
+    if [ -n "$SECRET_DB_URL" ]; then
+      echo "Secret DATABASE_URL presente y enmascarado por GitHub."
+    fi</pre>
+
+<p>En el log de Actions se ve que GitHub reemplaza el valor por <code>***</code>. El secreto nunca
+aparece en texto plano, ni siquiera parcialmente.</p>
+
+<pre class="terminal">env:
+  DATABASE_URL: ***localhost:5432/testdb
+  SECRET_DB_URL: ***
+Secret DATABASE_URL presente y enmascarado por GitHub.</pre>
+
+<p>No inyecté el secreto al job de pruebas. Esos tests corren en memoria a propósito (sin
+<code>DATABASE_URL</code>), y ponérselo haría que intentaran conectarse a una base que ahí no
+existe y fallaran. Por eso el secreto se usa en el job de migraciones, no en el de pruebas.</p>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 2 — Migraciones en el pipeline</h1>
+
+<p>Agregué un job <code>Migraciones y Seeds</code> al <code>ci.yml</code>. Levanta un PostgreSQL
+temporal como servicio de GitHub Actions (existe solo durante esa ejecución), espera a que pase el
+healthcheck, y aplica las migraciones con <code>prisma migrate deploy</code>.</p>
+
+<pre class="code">migraciones:
+  name: Migraciones y Seeds
+  runs-on: ubuntu-latest
+  services:
+    postgres:
+      image: postgres:16-alpine
+      env: { POSTGRES_USER: testuser, POSTGRES_PASSWORD: testpass, POSTGRES_DB: testdb }
+      ports: [ 5432:5432 ]
+      options: >-
+        --health-cmd pg_isready --health-interval 5s
+        --health-timeout 5s --health-retries 5
+  env:
+    DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+  steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with: { node-version: '20', cache: 'npm' }
+    - run: npm ci
+    - run: npx prisma migrate deploy
+    - run: npx prisma db seed</pre>
+
+<p>Este PostgreSQL de prueba usa credenciales fijas (<code>testuser</code>/<code>testpass</code>) y
+no un secreto, porque es descartable y no es accesible desde fuera. La base real de producción sí
+usa el secreto, como en el Laboratorio 1.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s6-2-job-migraciones.png" alt="El job Migraciones y Seeds en verde">
+  <div class="image-caption">Figura 1. El job "Migraciones y Seeds" en verde, con los pasos de verificación del secreto, <code>prisma migrate deploy</code> y <code>prisma db seed</code>. Es el 5.º check obligatorio de <code>main</code>.</div>
+</div>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 3 — Seed reproducible</h1>
+
+<p>Escribí <code>prisma/seed.js</code> con <code>upsert</code>, que actualiza si el registro ya
+existe en vez de crear uno nuevo, y lo registré en <code>package.json</code> como
+<code>prisma.seed</code>. Lo escribí con <code>import</code> porque el proyecto usa módulos ESM.</p>
+
+<pre class="code">// prisma/seed.js
+import { PrismaClient } from '@prisma/client'
+const prisma = new PrismaClient()
+async function main() {
+  await prisma.tarea.upsert({
+    where: { id: 1 },
+    update: {},
+    create: { id: 1, titulo: 'Tarea de ejemplo para pruebas', completada: false },
+  })
+}
+main().then(() => prisma.$disconnect()).catch(async (e) => {
+  console.error(e); await prisma.$disconnect(); process.exit(1)
+})</pre>
+
+<p>Lo corrí dos veces seguidas contra una base de prueba. La segunda corrida no falla ni duplica: la
+tabla queda con una sola fila.</p>
+
+<pre class="terminal">$ npx prisma db seed          # 1.ª vez
+🌱  The seed command has been executed.
+$ npx prisma db seed          # 2.ª vez
+🌱  The seed command has been executed.
+$ psql -c 'SELECT count(*) FROM "Tarea";'
+ 1                             (una sola fila, sin duplicar)</pre>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 3 — Auditoría de Fugas</h1>
+
+<p>Este ejercicio se hace en una rama de práctica que después se borra, sin fusionar a
+<code>main</code>. Lo hice con valores obviamente falsos y en una rama local, para no subir ni un
+secreto de práctica a GitHub.</p>
+
+<h2>Plantar las fugas</h2>
+
+<p>Puse dos fugas ficticias. La primera, una clave escrita directamente en un archivo. La segunda,
+un archivo <code>.env.filtrado</code> que forcé a subir saltando el <code>.gitignore</code>, y que
+después borré en otro commit (sin limpiar el historial, para ver que eso no basta).</p>
+
+<h2>Encontrarlas</h2>
+
+<p>La fuga del código actual se encuentra con <code>grep</code>. La del historial no aparece en el
+código actual, pero <code>git log -p</code> la muestra igual, porque el commit que la agregó sigue
+en el historial aunque el archivo ya se haya borrado.</p>
+
+<pre class="terminal">$ grep -rn "apiKey\|sk_test\|SECRET" --include="*.js" .
+config-demo.js:3:const apiKey = 'sk_test_FALSO123456789' // TODO: mover a variable de entorno
+
+$ git log -p --all -- .env.filtrado
+commit 7f64df5   (chore: eliminar archivo de configuracion)
+-DATABASE_URL=postgresql://usuario:contrasenaDePrueba999@host:5432/db
+commit 2df45ad   (chore: archivo de configuracion — fuga intencional)
++DATABASE_URL=postgresql://usuario:contrasenaDePrueba999@host:5432/db</pre>
+
+<h2>Remediarlas</h2>
+
+<p>La primera fuga se corrige reemplazando el valor por una lectura de variable de entorno
+(<code>const apiKey = process.env.API_KEY</code>) y guardando la clave como secreto. Después del
+cambio, <code>grep</code> ya no encuentra nada.</p>
+
+<pre class="terminal">$ grep -rn "sk_test" --include="*.js" .
+(sin coincidencias: la clave ya no está en el código)</pre>
+
+<p>Con la segunda fuga, borrar el archivo no alcanza: sigue siendo recuperable en el historial. Si
+hubiera sido una credencial real, lo correcto sería rotarla (generar una nueva e invalidar la
+anterior) y limpiar el historial con una herramienta como <code>git filter-repo</code> o BFG. Al
+terminar borré la rama de práctica, que nunca se fusiona a <code>main</code>.</p>
+</div>
+
+<div class="seccion">
+<h1>Cierre</h1>
+
+<p>Todo el trabajo permanente (secreto, job de migraciones y seed) entró a <code>main</code> por un
+Pull Request con los cinco checks en verde y la aprobación del revisor cruzado Cypher-dev-bo. El
+nuevo job quedó como quinto check obligatorio de la rama.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s6-1-pr-mergeado.png" alt="Pull Request de la Sesión 6, mergeado">
+  <div class="image-caption">Figura 2. PR #4 "migraciones, seed y gestión de secretos", mergeado a <code>main</code>, aprobado por Cypher-dev-bo y con los 5 checks en verde.</div>
+</div>
+
+<h2>Estado del entregable</h2>
+
+<table>
+  <tr><th>Requisito</th><th>Estado</th></tr>
+  <tr><td>Variables sensibles en GitHub Secrets (aquí <code>DATABASE_URL</code>), ninguna en texto plano</td><td>Cumplido (Lab 1)</td></tr>
+  <tr><td>El pipeline aplica <code>prisma migrate deploy</code> contra una base de prueba efímera</td><td>Cumplido (Figura 1)</td></tr>
+  <tr><td>El seed corre reproducible, sin duplicar datos</td><td>Cumplido (2 corridas, 1 fila)</td></tr>
+  <tr><td>Auditoría de Fugas: encontrar y remediar ambas fugas ficticias</td><td>Cumplido</td></tr>
+  <tr><td>La rama <code>feature/auditoria-fugas</code> fue eliminada al terminar</td><td>Cumplido</td></tr>
+</table>
+
+<h2>Insignias obtenidas</h2>
+
+<ul>
+  <li><strong>Auditor de Fugas</strong>: encontré las dos fugas (la del código con <code>grep</code>
+      y la del historial con <code>git log -p</code>).</li>
+  <li><strong>Guardián de Secretos</strong>: remedié la fuga del código y moví la variable sensible
+      a GitHub Secrets.</li>
+  <li><strong>Sembrador Reproducible</strong>: el seed corre dos veces sin duplicar datos.</li>
+</ul>
+</div>
+
+</body>
+</html>

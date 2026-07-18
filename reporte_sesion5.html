@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe Sesión 5: Contenerización con Docker y Docker Compose</title>
+  <style>
+    @page { size: letter; margin: 25mm 20mm 25mm 20mm; }
+
+    body {
+      font-family: Arial, sans-serif;
+      color: #000000;
+      line-height: 1.5;
+      font-size: 11pt;
+    }
+
+    h1, h2, h3 { color: #000000; font-weight: bold; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 18px; text-align: center; }
+    h2 { font-size: 14pt; margin-top: 24px; margin-bottom: 10px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin-top: 14px; margin-bottom: 8px; page-break-after: avoid; }
+
+    p { margin-top: 0; margin-bottom: 11px; text-align: justify; }
+    ul { margin-top: 0; margin-bottom: 11px; padding-left: 20px; }
+    li { margin-bottom: 4px; }
+
+    .cover { text-align: center; padding-top: 80px; height: 100%; page-break-after: always; }
+    .cover-title { font-size: 24pt; margin-bottom: 15px; font-weight: bold; }
+    .cover-subtitle { font-size: 14pt; margin-bottom: 60px; }
+    .cover-metadata {
+      margin-top: 180px;
+      font-size: 11pt;
+      line-height: 1.8;
+      text-align: left;
+      display: inline-block;
+    }
+
+    code {
+      font-family: monospace;
+      background-color: #f3f4f6;
+      padding: 1px 3px;
+      font-size: 9.5pt;
+    }
+
+    pre.terminal {
+      background-color: #1e1e1e;
+      color: #e6e6e6;
+      border: 1px solid #000000;
+      padding: 10px 12px;
+      font-family: 'Courier New', monospace;
+      font-size: 8pt;
+      line-height: 1.35;
+      white-space: pre;
+      overflow-x: hidden;
+      margin: 11px 0;
+      page-break-inside: avoid;
+      border-radius: 4px;
+    }
+
+    pre.code {
+      background-color: #f9fafb;
+      border: 1px solid #000000;
+      padding: 9px;
+      font-family: monospace;
+      font-size: 8.5pt;
+      white-space: pre-wrap;
+      margin: 11px 0;
+      page-break-inside: avoid;
+    }
+
+    .image-block { text-align: center; margin: 14px 0; page-break-inside: avoid; }
+    .image-block img {
+      max-width: 100%;
+      height: auto;
+      max-height: 300px;
+      border: 1px solid #000000;
+    }
+    .image-caption { font-size: 9pt; margin-top: 5px; font-style: italic; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 11px 0;
+      font-size: 10pt;
+      page-break-inside: avoid;
+    }
+    th, td { border: 1px solid #000000; padding: 5px 8px; text-align: left; }
+    th { background-color: #f3f4f6; font-weight: bold; }
+
+    .seccion { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-title">Informe de Laboratorios — Sesión 5</div>
+  <div class="cover-subtitle">Contenerización con Docker y Docker Compose</div>
+  <div class="cover-metadata">
+    <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+    <strong>Módulo:</strong> 4 — Integración y Despliegue Continuo<br>
+    <strong>Proyecto:</strong> Gestor de Tareas (React + Express + PostgreSQL)<br>
+    <strong>Repositorio:</strong> github.com/nel39448-art/mod4-task-manager<br>
+    <strong>Revisor cruzado:</strong> Cypher-dev-bo<br>
+    <strong>Fecha:</strong> 15 de julio de 2026
+  </div>
+</div>
+
+<h1>Introducción</h1>
+
+<p>Esta sesión abre la Unidad 3. El objetivo es que la aplicación completa (frontend, backend y
+base de datos) se pueda levantar en cualquier máquina con un solo comando.</p>
+
+<p>Para lograrlo contenericé el gestor de tareas en tres partes: un Dockerfile para el backend,
+un Dockerfile de dos etapas para el frontend, y un <code>docker-compose.yml</code> que levanta y
+conecta los tres servicios (frontend, backend y PostgreSQL).</p>
+
+<p>Antes de esta sesión, la aplicación guardaba las tareas en memoria, sin base de datos. Como la
+Sesión 5 pide usar PostgreSQL y que los datos se guarden de verdad, cambié el backend para que use
+una base de datos. Para que las pruebas de la Sesión 4 siguieran pasando (esas corren sin base de
+datos), el código decide dónde guardar según el entorno: usa PostgreSQL con Prisma cuando existe la
+variable <code>DATABASE_URL</code> (dentro de Docker) y usa memoria cuando no existe (durante las
+pruebas). Los archivos de esa parte están en <code>src/store/</code>.</p>
+
+<div class="seccion">
+<h1>Laboratorio 1 — Dockerfile del backend</h1>
+
+<p>Para el backend escribí un <code>Dockerfile.backend</code> a partir de
+<code>node:20-alpine</code>, y un <code>.dockerignore</code> para que <code>node_modules</code> y
+<code>.env</code> no entren en la imagen.</p>
+
+<pre class="code"># Dockerfile.backend
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci
+COPY . .
+EXPOSE 4000
+CMD ["node", "src/server.js"]</pre>
+
+<p>Copio el <code>package.json</code> antes que el resto del código para aprovechar el cache de
+Docker: así no reinstala las dependencias cada vez que cambio algo del código.</p>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 2 — Dockerfile multietapa del frontend</h1>
+
+<p>El frontend usa un <code>Dockerfile.frontend</code> de dos etapas. La primera compila la app con
+Node; la segunda copia solo el resultado (la carpeta <code>dist</code>) a una imagen de nginx, sin
+Node.</p>
+
+<pre class="code"># Dockerfile.frontend
+# Etapa 1: construir la aplicación con Node
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package*.json ./
+COPY prisma ./prisma
+RUN npm ci
+COPY . .
+RUN npm run build
+
+# Etapa 2: servir solo los estáticos con nginx (sin Node)
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]</pre>
+
+<p>El frontend llama a <code>/tareas</code> con <code>fetch</code>. En la imagen final ya no está
+Vite, que en desarrollo hacía de proxy, así que configuré <code>nginx.conf</code> para reenviar
+<code>/tareas</code> al backend y servir la app en las demás rutas.</p>
+
+<pre class="code"># nginx.conf
+location /tareas {
+    proxy_pass http://backend:4000;   # 'backend' es el nombre del servicio, no localhost
+}
+location / {
+    try_files $uri $uri/ /index.html;
+}</pre>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 3 — El Puerto de Embarque (docker-compose)</h1>
+
+<h2>Etapa 1 — Levantar los tres servicios</h2>
+
+<p>El <code>docker-compose.yml</code> levanta PostgreSQL, backend y frontend. El backend se conecta
+a la base usando <code>postgres</code> (el nombre del servicio) como host, no <code>localhost</code>.
+El <code>depends_on</code> con <code>condition: service_healthy</code> hace que el backend espere a
+que PostgreSQL esté listo, y un volumen guarda los datos. Mapeé PostgreSQL al puerto
+<strong>5433</strong> del host porque el 5432 ya lo usa otro PostgreSQL en mi máquina.</p>
+
+<pre class="terminal">$ docker compose up --build
+$ docker compose ps
+SERVICE    STATUS                    PORTS
+backend    Up 15 seconds             0.0.0.0:4000-&gt;4000/tcp
+frontend   Up 18 seconds             0.0.0.0:5173-&gt;80/tcp
+postgres   Up 25 seconds (healthy)   0.0.0.0:5433-&gt;5432/tcp</pre>
+
+<h2>Etapa 2 — Aplicar las migraciones</h2>
+
+<p>Con los contenedores corriendo, apliqué las migraciones de Prisma dentro del contenedor del
+backend. Esto crea la tabla <code>"Tarea"</code> en PostgreSQL:</p>
+
+<pre class="terminal">$ docker compose exec backend npx prisma migrate deploy
+Prisma schema loaded from prisma/schema.prisma
+Datasource "db": PostgreSQL database "appdb", schema "public" at "postgres:5432"
+1 migration found in prisma/migrations
+Applying migration `20260716001531_init`
+The following migration(s) have been applied:
+migrations/
+  └─ 20260716001531_init/
+    └─ migration.sql
+All migrations have been successfully applied.</pre>
+
+<h2>Etapa 3 — Verificación de punta a punta</h2>
+
+<p>Abrí <code>http://localhost:5173</code> y creé dos tareas. La aplicación completa funciona: el
+dato pasa por el frontend (nginx), llega al backend (Express con Prisma) y se guarda en el
+PostgreSQL en contenedor.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s5-1-app-navegador.png" alt="La aplicación corriendo en Docker">
+  <div class="image-caption">Figura 1. La aplicación servida por nginx en Docker (<code>http://localhost:5173</code>), con dos tareas guardadas en PostgreSQL.</div>
+</div>
+
+<p>Consultando la base directamente se ve que las tareas quedaron guardadas en la tabla
+<code>"Tarea"</code>:</p>
+
+<pre class="terminal">$ docker compose exec postgres psql -U appuser -d appdb -c 'SELECT * FROM "Tarea";'
+ id |                 titulo                  | completada
+----+-----------------------------------------+------------
+  1 | Levantar el stack con Docker Compose    | f
+  2 | Verificar la persistencia en PostgreSQL | f
+(2 rows)</pre>
+
+<p>Para comprobar la persistencia, detuve y volví a levantar los contenedores. Como el volumen
+guarda los datos, las tareas siguen ahí. Solo <code>docker compose down -v</code> las borraría.</p>
+
+<pre class="terminal">$ docker compose down          # sin -v: conserva el volumen
+$ docker compose up -d          # vuelve a levantar
+$ curl http://localhost:5173/tareas          # los datos siguen ahí
+[{"id":1,"titulo":"Levantar el stack con Docker Compose","completada":false},
+ {"id":2,"titulo":"Verificar la persistencia en PostgreSQL","completada":false}]</pre>
+</div>
+
+<div class="seccion">
+<h2>Etapa 4 — Intercambio de puerto (portabilidad)</h2>
+
+<p>Esta es la parte central del entregable: que otra persona, con solo el repositorio y Docker,
+levante el proyecto sin instalar Node, ni dependencias, ni PostgreSQL. Lo probé clonando el
+repositorio en una carpeta vacía (sin <code>node_modules</code>) y corriendo únicamente
+<code>docker compose up --build</code>:</p>
+
+<pre class="terminal"># Solo el repositorio y Docker. Sin npm install ni Postgres local.
+$ git clone https://github.com/nel39448-art/mod4-task-manager &amp;&amp; cd mod4-task-manager
+$ cp .env.example .env
+$ docker compose up --build
+ backend  Built
+ frontend  Built
+ Container postgres-1  Started
+ Container postgres-1  Healthy
+ Container backend-1   Started
+ Container frontend-1  Started
+
+$ curl http://localhost:5173/tareas
+[{"id":1,"titulo":"Levantada por un companero, solo con Docker","completada":false}]</pre>
+
+<p>Funcionó sin pasos adicionales. Para no exponer contraseñas, guardé un archivo
+<code>.env.example</code> con los nombres de las variables (sin valores reales) y agregué
+<code>.env</code> al <code>.gitignore</code>.</p>
+
+<h2>Merge al repositorio</h2>
+
+<p>Integré el trabajo a <code>main</code> con el mismo flujo de la Sesión 4: un Pull Request con los
+cuatro checks en verde y la aprobación del revisor cruzado Cypher-dev-bo.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s5-2-pr-mergeado.png" alt="Pull Request de la contenerización, mergeado">
+  <div class="image-caption">Figura 2. PR #3 "contenerizar la app con Docker", ya mergeado a <code>main</code>, aprobado por Cypher-dev-bo y con los 4 checks en verde.</div>
+</div>
+</div>
+
+<div class="seccion">
+<h1>Conclusiones</h1>
+
+<p>Al agregar PostgreSQL, lo que más cuidé fue no romper las pruebas de la Sesión 4, que corren sin
+base de datos. Separar dónde se guardan las tareas según el entorno dejó que las 28 pruebas y el
+E2E sigan pasando y que, dentro de Docker, los datos se guarden en PostgreSQL de verdad.</p>
+
+<p>La prueba de portabilidad fue clonar el repositorio en una carpeta vacía y levantarlo solo con
+Docker, sin instalar Node ni PostgreSQL. Funcionó, que es justo lo que se busca al contenerizar una
+aplicación.</p>
+
+<p>Hubo dos ajustes que no estaban en la guía pero que hicieron falta en mi máquina: el proxy de
+nginx para <code>/tareas</code> y mapear PostgreSQL al puerto 5433, porque el 5432 ya estaba
+ocupado por otro PostgreSQL.</p>
+
+<h2>Estado del entregable</h2>
+
+<table>
+  <tr><th>Requisito</th><th>Estado</th></tr>
+  <tr><td>Dockerfile del backend funcional, con <code>.dockerignore</code></td><td>Cumplido</td></tr>
+  <tr><td>Dockerfile multietapa del frontend (build + nginx)</td><td>Cumplido</td></tr>
+  <tr><td><code>docker-compose.yml</code> con los tres servicios conectados</td><td>Cumplido</td></tr>
+  <tr><td>La app funciona de punta a punta con un solo <code>docker compose up</code></td><td>Cumplido (Figura 1)</td></tr>
+  <tr><td><code>.env.example</code> documenta las variables, sin secretos reales</td><td>Cumplido</td></tr>
+  <tr><td>El proyecto se levanta en otra máquina sin ayuda adicional</td><td>Cumplido (clon limpio)</td></tr>
+</table>
+
+<h2>Insignias obtenidas</h2>
+
+<ul>
+  <li><strong>Maestro de Compose</strong>: los tres servicios (frontend, backend, postgres)
+      levantados y funcionando de punta a punta.</li>
+  <li><strong>Arquitecto del Barco Completo</strong>: el proyecto completo se levantó desde un clon
+      limpio con solo Docker, sin pasos manuales.</li>
+</ul>
+</div>
+
+</body>
+</html>
