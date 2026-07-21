@@ -13,9 +13,15 @@ app.get('/health', (req, res) => {
 
 // Exponer el array en memoria vía app.locals para que las pruebas puedan
 // resetear el estado entre casos (solo aplica al almacén en memoria).
-getStore().then((store) => {
-  if (store._tareas) app.locals.tareas = store._tareas;
-});
+// El .catch evita que un fallo al inicializar el almacén tumbe el proceso
+// (unhandled rejection): la salud del servicio no debe depender de la base.
+getStore()
+  .then((store) => {
+    if (store._tareas) app.locals.tareas = store._tareas;
+  })
+  .catch((e) => {
+    console.error('No se pudo inicializar el almacén:', e);
+  });
 
 // Obtener la lista de todas las tareas
 app.get('/tareas', async (req, res) => {
