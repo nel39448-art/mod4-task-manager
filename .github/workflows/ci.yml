@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirmacion:
+        description: 'Escribe DEPLOY para confirmar el despliegue a produccion'
+        required: true
 
 jobs:
   lint:
@@ -95,3 +100,35 @@ jobs:
           fi
       - run: npx prisma migrate deploy
       - run: npx prisma db seed
+
+  deploy-staging:
+    name: Deploy a Staging
+    needs: [lint, build, pruebas, e2e, migraciones]
+    # Solo tras un push real a main (es decir, después de un merge), y solo
+    # cuando el despliegue esté habilitado (variable de repo DEPLOY_ENABLED).
+    # Mientras DEPLOY_ENABLED no sea 'true', este job queda saltado y no rompe
+    # el pipeline aunque todavía no exista el proyecto de Railway ni el token.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+      - name: Desplegar a Railway (staging)
+        run: railway up --service backend --environment staging --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+
+  deploy-produccion:
+    name: Deploy a Producción (manual)
+    # Nunca automático: solo cuando alguien lo dispara a mano y escribe DEPLOY.
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.confirmacion == 'DEPLOY' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar Railway CLI
+        run: npm install -g @railway/cli
+      - name: Desplegar a Railway (produccion)
+        run: railway up --service backend --environment production --ci
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

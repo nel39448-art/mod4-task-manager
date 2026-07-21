@@ -5,6 +5,12 @@ const app = express();
 
 app.use(express.json());
 
+// Ruta de salud: Railway (y cualquier orquestador) la usa para saber si el
+// servicio está vivo. Debe responder rápido y sin depender de la base de datos.
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
 // Exponer el array en memoria vía app.locals para que las pruebas puedan
 // resetear el estado entre casos (solo aplica al almacén en memoria).
 getStore().then((store) => {

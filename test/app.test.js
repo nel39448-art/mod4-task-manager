@@ -31,5 +31,13 @@ describe('API de tareas', () => {
     expect(res.status).toBe(200)
     expect(Array.isArray(res.body)).toBe(true)
   })
+
+  // Prueba 4: la ruta de salud responde para el healthcheck de Railway
+  it('GET /health responde 200 con status ok', async () => {
+    const res = await request(app).get('/health')
+
+    expect(res.status).toBe(200)
+    expect(res.body).toEqual({ status: 'ok' })
+  })
 })
 
