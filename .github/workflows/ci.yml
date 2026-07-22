@@ -131,4 +131,6 @@ jobs:
       - name: Desplegar a Railway (produccion)
         run: railway up --service backend --environment production --ci
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          # Token de proyecto scopeado al ambiente production (los tokens de
+          # Railway van por ambiente; staging usa RAILWAY_TOKEN).
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
