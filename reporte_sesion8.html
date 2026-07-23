@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe Sesión 8: Observabilidad, Integración Total y Proyecto Final</title>
+  <style>
+    @page { size: letter; margin: 25mm 20mm 25mm 20mm; }
+    body { font-family: Arial, sans-serif; color: #000000; line-height: 1.5; font-size: 11pt; }
+    h1, h2, h3 { color: #000000; font-weight: bold; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 18px; text-align: center; }
+    h2 { font-size: 14pt; margin-top: 24px; margin-bottom: 10px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin-top: 14px; margin-bottom: 8px; page-break-after: avoid; }
+    p { margin-top: 0; margin-bottom: 11px; text-align: justify; }
+    ul, ol { margin-top: 0; margin-bottom: 11px; padding-left: 22px; }
+    li { margin-bottom: 6px; }
+    .cover { text-align: center; padding-top: 80px; height: 100%; page-break-after: always; }
+    .cover-title { font-size: 24pt; margin-bottom: 15px; font-weight: bold; }
+    .cover-subtitle { font-size: 14pt; margin-bottom: 60px; }
+    .cover-metadata { margin-top: 150px; font-size: 11pt; line-height: 1.8; text-align: left; display: inline-block; }
+    code { font-family: monospace; background-color: #f3f4f6; padding: 1px 3px; font-size: 9.5pt; }
+    pre.terminal {
+      background-color: #1e1e1e; color: #e6e6e6; border: 1px solid #000000;
+      padding: 10px 12px; font-family: 'Courier New', monospace; font-size: 8pt;
+      line-height: 1.35; white-space: pre; overflow-x: hidden; margin: 11px 0;
+      page-break-inside: avoid; border-radius: 4px;
+    }
+    pre.code {
+      background-color: #f9fafb; border: 1px solid #000000; padding: 9px;
+      font-family: monospace; font-size: 8.5pt; white-space: pre-wrap; margin: 11px 0;
+      page-break-inside: avoid;
+    }
+    .image-block { text-align: center; margin: 14px 0; page-break-inside: avoid; }
+    .image-block img { max-width: 100%; height: auto; max-height: 300px; border: 1px solid #000000; }
+    .image-caption { font-size: 9pt; margin-top: 5px; font-style: italic; }
+    table { width: 100%; border-collapse: collapse; margin: 11px 0; font-size: 9.5pt; page-break-inside: avoid; }
+    th, td { border: 1px solid #000000; padding: 5px 8px; text-align: left; vertical-align: top; }
+    th { background-color: #f3f4f6; font-weight: bold; }
+    .seccion { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-title">Informe de Laboratorios — Sesión 8</div>
+  <div class="cover-subtitle">Observabilidad, Integración Total y Proyecto Final</div>
+  <div class="cover-metadata">
+    <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+    <strong>Módulo:</strong> 4 — Integración y Despliegue Continuo<br>
+    <strong>Proyecto:</strong> Gestor de Tareas (React + Express + PostgreSQL)<br>
+    <strong>Repositorio:</strong> github.com/nel39448-art/mod4-task-manager<br>
+    <strong>Staging:</strong> backend-staging-6143.up.railway.app<br>
+    <strong>Producción:</strong> backend-production-824b.up.railway.app<br>
+    <strong>Fecha:</strong> 22 de julio de 2026
+  </div>
+</div>
+
+<h1>Introducción</h1>
+
+<p>Esta es la última sesión del módulo. No trae conceptos nuevos de los laboratorios anteriores:
+sirve para agregar observabilidad al proyecto, verificar que las siete piezas construidas en las
+sesiones 1 a 7 funcionan juntas como un sistema, y preparar la presentación final.</p>
+
+<p>El proyecto es un gestor de tareas: una aplicación web para crear, listar, completar y eliminar
+tareas. Alrededor de ella se construyó, sesión a sesión, un pipeline de integración y despliegue
+continuo: el código se prueba, se conteneriza, guarda sus secretos, aplica migraciones, se despliega
+solo a staging y se puede revertir. En esta sesión le agregué el nivel de monitoreo.</p>
+
+<div class="seccion">
+<h1>Observabilidad — Prometheus y Grafana</h1>
+
+<p>La observabilidad responde tres preguntas sobre un sistema en producción: ¿está vivo?, ¿está
+sano?, ¿qué pasó? Mi proyecto ya respondía las dos primeras con el healthcheck <code>/health</code>
+y los logs de Railway. En esta sesión agregué métricas para responder mejor la tercera.</p>
+
+<p>Instrumenté el backend con <code>prom-client</code>: una ruta <code>/metrics</code> en formato
+Prometheus y un middleware que mide cada petición (duración y total, por método, ruta y código de
+estado), además de las métricas por defecto del proceso Node (memoria, CPU).</p>
+
+<pre class="code">// src/metrics.js — el middleware mide cada petición
+export function metricsMiddleware(req, res, next) {
+  const end = httpRequestDuration.startTimer()
+  res.on('finish', () => {
+    const route = req.route?.path || req.path
+    const labels = { method: req.method, route, status_code: res.statusCode }
+    end(labels)
+    httpRequestsTotal.inc(labels)
+  })
+  next()
+}</pre>
+
+<p>Agregué dos servicios más al <code>docker-compose</code>: <strong>Prometheus</strong>, que raspa
+<code>/metrics</code> del backend cada 15 segundos, y <strong>Grafana</strong>, que lee de Prometheus
+y muestra las métricas en un tablero. Ahora <code>docker compose up</code> levanta cinco servicios:
+frontend, backend, postgres, prometheus y grafana.</p>
+
+<p>Levanté el stack, generé tráfico a la API, y verifiqué la cadena completa. Prometheus muestra el
+backend como objetivo activo:</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s8-2-prometheus-target.png" alt="Prometheus con el target backend UP">
+  <div class="image-caption">Figura 1. Prometheus raspando el backend: <code>http://backend:4000/metrics</code>, estado <strong>UP</strong>.</div>
+</div>
+
+<p>Y Grafana muestra el tablero poblado con datos reales de la aplicación: peticiones por segundo,
+duración de las peticiones, total atendidas y memoria del proceso.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s8-1-grafana-dashboard.png" alt="Tablero de Grafana con métricas del backend">
+  <div class="image-caption">Figura 2. Tablero de Grafana "Gestor de Tareas — Observabilidad" con métricas en vivo del backend.</div>
+</div>
+
+<p>Prometheus y Grafana serían, en un sistema real, la base para alertas automáticas cuando una
+métrica se sale de rango. Eso queda como la siguiente ruta de crecimiento.</p>
+</div>
+
+<div class="seccion">
+<h1>Verificación de Integración Total</h1>
+
+<p>La mejor forma de comprobar que las siete piezas funcionan juntas es hacer pasar un cambio real
+por todas ellas, de punta a punta. Hice un cambio pequeño y visible: enriquecí la ruta
+<code>/health</code> para que además de <code>status</code> devuelva el nombre del servicio y la
+hora.</p>
+
+<pre class="code">app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    service: 'gestor-de-tareas',
+    timestamp: new Date().toISOString(),
+  })
+})</pre>
+
+<p>Lo subí por el flujo normal: rama, Pull Request, y el pipeline se disparó. Las cinco etapas
+pasaron en verde.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s8-3-pipeline-completo.png" alt="El pipeline completo en verde">
+  <div class="image-caption">Figura 3. El pipeline completo: Lint, Build, Pruebas unitarias y cobertura, Pruebas E2E y Migraciones y Seeds, todas en verde. <em>Status: Success</em>.</div>
+</div>
+
+<p>Al hacer el merge a <code>main</code>, se disparó el despliegue automático a staging. Confirmé en
+la URL pública que el cambio ya estaba vivo: <code>/health</code> devuelve los campos nuevos.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s8-4-cambio-vivo-staging.png" alt="El cambio visible en la URL de staging">
+  <div class="image-caption">Figura 4. El cambio desplegado y visible en la URL pública de staging: <code>/health</code> ya devuelve <code>service</code> y <code>timestamp</code>.</div>
+</div>
+
+<pre class="terminal">$ curl https://backend-staging-6143.up.railway.app/health
+{"status":"ok","service":"gestor-de-tareas","timestamp":"2026-07-23T01:40:23.624Z"}</pre>
+
+<p>El cambio recorrió las siete etapas: lint, pruebas, E2E, build, migraciones y seed, y despliegue.
+La integración total quedó verificada con un cambio real, no solo revisando que cada pieza
+"existe".</p>
+</div>
+
+<div class="seccion">
+<h1>El checklist de las 7 etapas</h1>
+
+<table>
+  <tr><th>#</th><th>Etapa</th><th>Qué hace</th><th>Estado</th></tr>
+  <tr><td>1</td><td>Lint</td><td>ESLint revisa el estilo del código en cada PR.</td><td>Verde</td></tr>
+  <tr><td>2</td><td>Pruebas (unit + componente + API)</td><td>Vitest corre 30 pruebas: funciones, componentes React y la API con Supertest.</td><td>Verde</td></tr>
+  <tr><td>3</td><td>E2E</td><td>Playwright recorre el flujo feliz en un navegador real.</td><td>Verde</td></tr>
+  <tr><td>4</td><td>Build</td><td>Vite construye el frontend de producción.</td><td>Verde</td></tr>
+  <tr><td>5</td><td>Contenerización</td><td><code>docker compose up</code> levanta los 5 servicios juntos.</td><td>Verde</td></tr>
+  <tr><td>6</td><td>Migraciones + seed</td><td>El pipeline aplica las migraciones de Prisma contra un PostgreSQL efímero.</td><td>Verde</td></tr>
+  <tr><td>7</td><td>Despliegue</td><td>Un merge a <code>main</code> despliega solo a staging; producción es manual, con rollback demostrado.</td><td>Verde</td></tr>
+</table>
+
+<p>Las siete etapas están verificadas en el pipeline. Sé explicar qué hace cada una, no solo que
+existe, y preparé el guion de la presentación en <code>PRESENTACION.md</code>.</p>
+</div>
+
+<div class="seccion">
+<h1>Conclusiones</h1>
+
+<p>Cierro el módulo con el ciclo de CI/CD completo funcionando sobre un proyecto real. Empecé con
+una app que guardaba tareas en memoria y termino con una aplicación probada, contenerizada, con su
+base de datos y secretos bajo control, monitoreada, y desplegándose sola a dos ambientes separados
+con capacidad de revertirse.</p>
+
+<p>De esta última sesión me llevo la idea de la observabilidad como tres preguntas concretas —¿está
+vivo?, ¿está sano?, ¿qué pasó?— y ver cómo cada una se responde con algo que ya construí: el
+healthcheck, la respuesta enriquecida, los logs y ahora las métricas en Grafana.</p>
+
+<p>El proyecto no termina aquí: es una base real que puedo seguir mejorando. El mapa de crecimiento
+que quedó pendiente —Kubernetes, Terraform, alertas automáticas sobre las métricas, CI/CD móvil— es
+mi ruta de estudio siguiente.</p>
+
+<h2>Estado del entregable del proyecto final</h2>
+
+<table>
+  <tr><th>Requisito</th><th>Estado</th></tr>
+  <tr><td>Las 7 etapas del pipeline funcionan de punta a punta</td><td>Cumplido</td></tr>
+  <tr><td>Prueba de fuego: un cambio real llegó de mi rama hasta el despliegue en staging</td><td>Cumplido (Figuras 3 y 4)</td></tr>
+  <tr><td>Observabilidad: métricas del backend en Prometheus y Grafana</td><td>Cumplido (Figuras 1 y 2)</td></tr>
+  <tr><td>Sé explicar qué hace cada etapa</td><td>Cumplido (PRESENTACION.md)</td></tr>
+  <tr><td>Materiales de presentación preparados</td><td>Cumplido</td></tr>
+</table>
+
+<h2>Insignia de cierre</h2>
+
+<p><strong>Graduado/a Misión DevOps</strong>: el pipeline completo, con las 7 etapas ejecutándose
+realmente, quedó demostrado de punta a punta con un cambio real desplegado a staging.</p>
+</div>
+
+</body>
+</html>
