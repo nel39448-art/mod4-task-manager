@@ -1,0 +1,11 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    # 'prometheus' es el nombre del servicio dentro de la red de Compose.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

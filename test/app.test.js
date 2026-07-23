@@ -39,5 +39,13 @@ describe('API de tareas', () => {
     expect(res.status).toBe(200)
     expect(res.body).toEqual({ status: 'ok' })
   })
+
+  // Prueba 5: la ruta de métricas expone datos en formato Prometheus
+  it('GET /metrics responde 200 con métricas de Prometheus', async () => {
+    const res = await request(app).get('/metrics')
+
+    expect(res.status).toBe(200)
+    expect(res.text).toContain('http_requests_total')
+  })
 })
 
