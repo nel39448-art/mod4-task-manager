@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Informe Sesión 7: Despliegue Continuo, Ambientes y Rollback</title>
+  <style>
+    @page { size: letter; margin: 25mm 20mm 25mm 20mm; }
+    body { font-family: Arial, sans-serif; color: #000000; line-height: 1.5; font-size: 11pt; }
+    h1, h2, h3 { color: #000000; font-weight: bold; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 18px; text-align: center; }
+    h2 { font-size: 14pt; margin-top: 24px; margin-bottom: 10px; page-break-after: avoid; }
+    h3 { font-size: 12pt; margin-top: 14px; margin-bottom: 8px; page-break-after: avoid; }
+    p { margin-top: 0; margin-bottom: 11px; text-align: justify; }
+    ul, ol { margin-top: 0; margin-bottom: 11px; padding-left: 22px; }
+    li { margin-bottom: 6px; }
+    .cover { text-align: center; padding-top: 80px; height: 100%; page-break-after: always; }
+    .cover-title { font-size: 24pt; margin-bottom: 15px; font-weight: bold; }
+    .cover-subtitle { font-size: 14pt; margin-bottom: 60px; }
+    .cover-metadata { margin-top: 160px; font-size: 11pt; line-height: 1.8; text-align: left; display: inline-block; }
+    code { font-family: monospace; background-color: #f3f4f6; padding: 1px 3px; font-size: 9.5pt; }
+    pre.terminal {
+      background-color: #1e1e1e; color: #e6e6e6; border: 1px solid #000000;
+      padding: 10px 12px; font-family: 'Courier New', monospace; font-size: 8pt;
+      line-height: 1.35; white-space: pre; overflow-x: hidden; margin: 11px 0;
+      page-break-inside: avoid; border-radius: 4px;
+    }
+    pre.code {
+      background-color: #f9fafb; border: 1px solid #000000; padding: 9px;
+      font-family: monospace; font-size: 8.5pt; white-space: pre-wrap; margin: 11px 0;
+      page-break-inside: avoid;
+    }
+    .image-block { text-align: center; margin: 14px 0; page-break-inside: avoid; }
+    .image-block img { max-width: 100%; height: auto; max-height: 300px; border: 1px solid #000000; }
+    .image-caption { font-size: 9pt; margin-top: 5px; font-style: italic; }
+    table { width: 100%; border-collapse: collapse; margin: 11px 0; font-size: 9.5pt; page-break-inside: avoid; }
+    th, td { border: 1px solid #000000; padding: 5px 8px; text-align: left; vertical-align: top; }
+    th { background-color: #f3f4f6; font-weight: bold; }
+    .seccion { page-break-before: always; }
+  </style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="cover-title">Informe de Laboratorios — Sesión 7</div>
+  <div class="cover-subtitle">Despliegue Continuo, Ambientes y Rollback</div>
+  <div class="cover-metadata">
+    <strong>Estudiante:</strong> Marianela Saravia Ortega<br>
+    <strong>Módulo:</strong> 4 — Integración y Despliegue Continuo<br>
+    <strong>Proyecto:</strong> Gestor de Tareas (React + Express + PostgreSQL)<br>
+    <strong>Repositorio:</strong> github.com/nel39448-art/mod4-task-manager<br>
+    <strong>Plataforma de despliegue:</strong> Railway<br>
+    <strong>Revisor cruzado:</strong> Cypher-dev-bo<br>
+    <strong>Fecha:</strong> 21 de julio de 2026
+  </div>
+</div>
+
+<h1>Introducción</h1>
+
+<p>Esta sesión cierra el ciclo de CI/CD del módulo: la aplicación pasa de estar contenerizada a
+desplegarse sola en la nube. Al terminar, cada vez que un cambio se integra a <code>main</code>,
+el pipeline despliega la app a un ambiente de <strong>staging</strong>, pero solo si todos los
+checks pasaron. Producción se despliega aparte, a mano y con confirmación. Y practiqué qué hacer
+cuando un despliegue sale mal: diagnosticar por los logs y revertir.</p>
+
+<p>Usé Railway como plataforma. El servicio que se despliega es el backend (Express + Prisma), con
+su propio PostgreSQL en cada ambiente. La URL pública responde la API.</p>
+
+<p>Fue, con honestidad, la sesión más difícil del módulo: el código y el pipeline los tuve verdes
+rápido, pero conectar todo con Railway destapó una cadena larga de problemas de configuración que
+fui resolviendo uno por uno leyendo los logs. Documento esa cadena completa más adelante, porque
+ahí está el aprendizaje real.</p>
+
+<div class="seccion">
+<h1>Laboratorio 1 — Conectar el pipeline a Railway</h1>
+
+<p>Agregué un job <code>deploy-staging</code> al <code>ci.yml</code> que despliega a Railway con
+el CLI, pero solo tras un push real a <code>main</code> (después de un merge) y solo si pasaron
+los checks anteriores. El token de Railway se guarda como secret de GitHub, nunca en el código.</p>
+
+<pre class="code">deploy-staging:
+  name: Deploy a Staging
+  needs: [lint, build, pruebas, e2e, migraciones]
+  if: github.ref == 'refs/heads/main' &amp;&amp; github.event_name == 'push' &amp;&amp; vars.DEPLOY_ENABLED == 'true'
+  runs-on: ubuntu-latest
+  steps:
+    - uses: actions/checkout@v4
+    - run: npm install -g @railway/cli
+    - run: railway up --service backend --environment staging --ci
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}</pre>
+
+<p>El <code>needs</code> extiende el quality gate hasta el despliegue: si cualquier check falla, el
+deploy no ocurre. El <code>if</code> con <code>github.event_name == 'push'</code> evita que se
+despliegue desde un Pull Request abierto. La variable <code>DEPLOY_ENABLED</code> permite dejar el
+job escrito pero saltado hasta que Railway y el token están listos, para no romper el pipeline
+mientras tanto.</p>
+
+<p>También agregué al backend una ruta de salud, que Railway usa como healthcheck y que responde
+sin depender de la base:</p>
+
+<pre class="code">app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' })
+})</pre>
+
+<p>Tras conectar todo, el despliegue a staging quedó activo y sano. La aplicación responde en su
+URL pública <code>backend-staging-6143.up.railway.app</code>.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s7-1-staging-deploy-exitoso.png" alt="Despliegue a staging exitoso en Railway">
+  <div class="image-caption">Figura 1. Despliegue a staging <em>ACTIVE / Deployment successful</em> en Railway, con todas las etapas (Initialization, Build, Deploy, Network, Post-deploy) en verde.</div>
+</div>
+
+<pre class="terminal">$ curl https://backend-staging-6143.up.railway.app/health
+{"status":"ok"}
+$ curl https://backend-staging-6143.up.railway.app/tareas
+[{"id":1,"titulo":"Tarea creada en staging (Railway)","completada":false}]</pre>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 2 — Ambientes de staging y producción</h1>
+
+<p>Separé staging y producción como dos ambientes independientes en Railway, cada uno con su
+<strong>propio PostgreSQL</strong> y sus propias variables. Producción no comparte base de datos
+con staging.</p>
+
+<p>El despliegue a producción no es automático: se dispara a mano con un
+<code>workflow_dispatch</code> que exige escribir la palabra <code>DEPLOY</code>. Es una fricción
+intencional para que un despliegue a producción no ocurra por accidente.</p>
+
+<pre class="code">deploy-produccion:
+  name: Deploy a Producción (manual)
+  if: github.event_name == 'workflow_dispatch' &amp;&amp; github.event.inputs.confirmacion == 'DEPLOY' &amp;&amp; vars.DEPLOY_ENABLED == 'true'
+  ...
+    - run: railway up --service backend --environment production --ci
+      env:
+        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}</pre>
+
+<p>Los tokens de Railway van por ambiente, así que producción usa su propio token
+(<code>RAILWAY_TOKEN_PROD</code>), distinto al de staging. Ejecuté el despliegue manual desde la
+pestaña Actions escribiendo <code>DEPLOY</code>, y terminó en verde.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s7-5-deploy-manual-produccion.png" alt="Despliegue manual a producción exitoso">
+  <div class="image-caption">Figura 2. Despliegue a producción <em>Manually triggered</em>, <code>on: workflow_dispatch</code>, <strong>Status: Success</strong>. Un push normal a <code>main</code> nunca lo dispara.</div>
+</div>
+
+<p>Comprobé que las bases de datos están separadas creando una tarea solo en producción y
+verificando que staging conserva otra distinta:</p>
+
+<pre class="terminal">$ curl -X POST https://backend-production-824b.up.railway.app/tareas -d '{"titulo":"Tarea exclusiva de PRODUCCION"}'
+{"id":1,"titulo":"Tarea exclusiva de PRODUCCION","completada":false}
+
+$ curl .../produccion/tareas   -> [{"titulo":"Tarea exclusiva de PRODUCCION", ...}]
+$ curl .../staging/tareas      -> [{"titulo":"Tarea creada en staging (Railway)", ...}]</pre>
+
+<p>Datos distintos en cada ambiente confirman que son bases independientes.</p>
+</div>
+
+<div class="seccion">
+<h1>Laboratorio 3 — Simulacro de Caos (rollback)</h1>
+
+<p>Practiqué el ciclo completo de un incidente: provocarlo, diagnosticarlo y revertirlo.</p>
+
+<h2>Ronda 1 — Provocar el desastre</h2>
+
+<p>Introduje un fallo de arranque en el servidor. Para que pasara el quality gate (las pruebas y
+el E2E corren sin base de datos) pero rompiera en Railway, hice que el fallo se dispare solo cuando
+existe <code>DATABASE_URL</code>:</p>
+
+<pre class="code">if (process.env.DATABASE_URL) {
+  throw new Error('fallo simulado para el simulacro de caos')
+}</pre>
+
+<p>El Pull Request pasó los cinco checks y se fusionó a <code>main</code>, tal como anticipa la
+guía: este tipo de error no lo detectan las pruebas.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s7-2-ronda1-desastre-pasa-gate.png" alt="El PR con el fallo pasó el quality gate">
+  <div class="image-caption">Figura 3. El PR #8 con el fallo intencional, <em>Merged</em> y con el check en verde: el desastre pasó el quality gate.</div>
+</div>
+
+<h2>Ronda 2 — Diagnóstico bajo presión</h2>
+
+<p>Al fusionarse, staging desplegó la versión rota. El servidor se caía al arrancar, así que el
+healthcheck falló. En los logs de Railway encontré la causa exacta:</p>
+
+<pre class="terminal">1/1 replicas never became healthy!
+Healthcheck failed!
+Error: fallo simulado para el simulacro de caos</pre>
+
+<p>Un detalle importante: <strong>el healthcheck protegió el servicio</strong>. Como la versión
+rota nunca llegó a estar sana, Railway no la promovió y mantuvo activa la versión anterior. La URL
+siguió respondiendo 200 durante todo el incidente. Un buen healthcheck evita que un despliegue
+defectuoso tumbe la aplicación.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s7-3-ronda2-deploy-fallido.png" alt="Despliegue fallido en Railway">
+  <div class="image-caption">Figura 4. El despliegue <strong>FAILED</strong> con la etapa <em>Network › Healthcheck</em> en rojo, mientras la versión sana sigue activa. Las notificaciones marcan el fallo.</div>
+</div>
+
+<h2>Ronda 3 — Rollback y corrección</h2>
+
+<p>Hice el rollback redesplegando la última versión sana desde el historial de Railway. El servicio
+volvió a estado <em>Deployment successful</em>.</p>
+
+<div class="image-block">
+  <img src="capturas/captura-s7-4-ronda3-rollback.png" alt="Rollback: versión sana activa">
+  <div class="image-caption">Figura 5. Tras el rollback, la versión sana (PR #7) queda <em>ACTIVE / Deployment successful</em>. El despliegue fallido queda en el historial.</div>
+</div>
+
+<p>Recién después corregí el error real por el flujo normal: revertí el <code>throw</code> en una
+rama, abrí un Pull Request, pasaron los checks, se fusionó, y el nuevo despliegue a staging quedó
+sano. La tarea que había creado antes seguía persistida en la base.</p>
+
+<pre class="terminal">$ curl https://backend-staging-6143.up.railway.app/health
+{"status":"ok"}
+$ curl https://backend-staging-6143.up.railway.app/tareas
+[{"id":1,"titulo":"Tarea creada en staging (Railway)","completada":false}]</pre>
+</div>
+
+<div class="seccion">
+<h1>Problemas y soluciones</h1>
+
+<p>Conectar el pipeline con Railway destapó una cadena de problemas de configuración. Cada uno se
+resolvió leyendo el error y ajustando una cosa. Los dejo documentados en orden, porque juntos son
+el verdadero aprendizaje de la sesión.</p>
+
+<table>
+  <tr><th>#</th><th>Síntoma (lo que decía el error)</th><th>Causa</th><th>Solución</th></tr>
+  <tr>
+    <td>1</td>
+    <td><code>Invalid RAILWAY_TOKEN</code></td>
+    <td>El token estaba incompleto al copiar o era del tipo equivocado.</td>
+    <td>Recrear un token de proyecto de Railway y copiar el valor completo.</td>
+  </tr>
+  <tr>
+    <td>2</td>
+    <td><code>Service not found</code></td>
+    <td>Railway nombró el servicio con el nombre del repositorio, no <code>backend</code>.</td>
+    <td>Renombrar el servicio a <code>backend</code> para que coincida con <code>railway up --service backend</code>.</td>
+  </tr>
+  <tr>
+    <td>3</td>
+    <td><code>Environment "production" not found</code></td>
+    <td>El token estaba scopeado a otro ambiente. Los tokens de Railway van por ambiente.</td>
+    <td>Usar el token del ambiente correcto, y para staging + producción, un token por ambiente.</td>
+  </tr>
+  <tr>
+    <td>4</td>
+    <td><code>Environment variable not found: DATABASE_URL</code> (Prisma P1012)</td>
+    <td>El ambiente no tenía un PostgreSQL ni la variable de conexión.</td>
+    <td>Agregar un PostgreSQL al ambiente y definir <code>DATABASE_URL</code> en el backend.</td>
+  </tr>
+  <tr>
+    <td>5</td>
+    <td>La variable seguía faltando en el contenedor pese a haberla puesto.</td>
+    <td>Railway deja los cambios de variables en borrador hasta aplicarlos.</td>
+    <td>Hacer clic en <strong>Deploy / Apply changes</strong> para aplicar el cambio.</td>
+  </tr>
+  <tr>
+    <td>6</td>
+    <td>La variable quedaba vacía aunque estaba "aplicada".</td>
+    <td>La referencia <code>${{Postgres.DATABASE_URL}}</code> no resolvía: la tarjeta del Postgres no se llamaba exactamente <code>Postgres</code>.</td>
+    <td>Usar el valor literal de la conexión, copiado del servicio de PostgreSQL.</td>
+  </tr>
+  <tr>
+    <td>7</td>
+    <td><code>Application not found</code> / healthcheck sin destino.</td>
+    <td>El servicio no estaba expuesto (sin dominio) y el puerto no estaba alineado.</td>
+    <td>Generar un dominio público (puerto 8080) y dejar que Railway maneje la variable <code>PORT</code>.</td>
+  </tr>
+  <tr>
+    <td>8</td>
+    <td>Crash loop: migraba, pero el servidor <strong>nunca arrancaba</strong> (ninguna línea de "escuchando").</td>
+    <td>Dos causas: un <em>unhandled rejection</em> podía tumbar el proceso, y el Start Command combinaba migraciones y arranque con <code>&amp;&amp;</code>, y el servidor no tomaba el relevo.</td>
+    <td>Endurecer el código (<code>.catch</code> en la init, handler de <code>unhandledRejection</code>, escuchar en <code>0.0.0.0</code>) y, en Railway, <strong>separar</strong> el <em>Pre-deploy Command</em> (<code>prisma migrate deploy</code>) del <em>Start Command</em> (<code>node src/server.js</code>).</td>
+  </tr>
+</table>
+
+<p>El problema 8 fue el que más costó y el que finalmente dejó la app viva: separar las migraciones
+del arranque, en fases distintas, hizo que el servidor sí se levantara y el healthcheck pasara a
+verde. Una vez resuelto en staging, montar producción fue directo, porque ya sabía exactamente qué
+hacer.</p>
+</div>
+
+<div class="seccion">
+<h1>Conclusiones</h1>
+
+<p>El pipeline y el código fueron la parte fácil; lo difícil fue el diálogo con la plataforma de
+despliegue. Cada error de Railway pedía leer el log con calma y cambiar una sola cosa. Esa
+disciplina de diagnóstico por logs es, en el fondo, la misma habilidad que pide el Simulacro de
+Caos, y terminé practicándola durante toda la sesión, no solo en el Laboratorio 3.</p>
+
+<p>Dos aprendizajes se me quedaron grabados. El primero: un buen healthcheck es una red de
+seguridad real; cuando desplegué código roto a propósito, la aplicación no se cayó, porque Railway
+se negó a promover una versión que no respondía. El segundo: las migraciones y el arranque del
+servidor deben correr en fases separadas, no encadenados en un solo comando.</p>
+
+<p>El resultado es el ciclo de CI/CD cerrado: el código se prueba, se conteneriza, guarda sus
+secretos, se despliega solo a staging tras cada cambio aprobado, se promueve a producción con una
+decisión manual, y se puede revertir en segundos.</p>
+
+<h2>Estado del entregable</h2>
+
+<table>
+  <tr><th>Requisito</th><th>Estado</th></tr>
+  <tr><td>El pipeline despliega automáticamente a staging tras cada merge a <code>main</code>, solo si pasaron los checks</td><td>Cumplido (Figura 1)</td></tr>
+  <tr><td>Staging y producción son ambientes separados, con sus propias variables y base de datos</td><td>Cumplido (bases separadas verificadas)</td></tr>
+  <tr><td>El despliegue a producción requiere un disparo manual explícito</td><td>Cumplido (Figura 2)</td></tr>
+  <tr><td>El servicio tiene una ruta <code>/health</code> como healthcheck en Railway</td><td>Cumplido</td></tr>
+  <tr><td>Provoqué un despliegue defectuoso y lo diagnostiqué con logs y healthcheck</td><td>Cumplido (Figuras 3 y 4)</td></tr>
+  <tr><td>Ejecuté un rollback exitoso y luego corregí el error por el flujo normal</td><td>Cumplido (Figura 5)</td></tr>
+</table>
+
+<h2>Insignias obtenidas</h2>
+
+<ul>
+  <li><strong>Médico de Servicios</strong>: identifiqué la causa de cada fallo usando solo los logs
+      y el healthcheck.</li>
+  <li><strong>Héroe del Rollback</strong>: completé un rollback que devolvió el servicio a estado
+      sano, y luego corregí el error real por el flujo normal.</li>
+</ul>
+</div>
+
+</body>
+</html>
