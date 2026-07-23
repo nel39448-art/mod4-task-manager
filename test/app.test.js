@@ -33,11 +33,12 @@ describe('API de tareas', () => {
   })
 
   // Prueba 4: la ruta de salud responde para el healthcheck de Railway
-  it('GET /health responde 200 con status ok', async () => {
+  it('GET /health responde 200 con status ok y datos del servicio', async () => {
     const res = await request(app).get('/health')
 
     expect(res.status).toBe(200)
-    expect(res.body).toEqual({ status: 'ok' })
+    expect(res.body).toMatchObject({ status: 'ok', service: 'gestor-de-tareas' })
+    expect(res.body).toHaveProperty('timestamp')
   })
 
   // Prueba 5: la ruta de métricas expone datos en formato Prometheus

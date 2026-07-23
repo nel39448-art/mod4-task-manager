@@ -11,8 +11,14 @@ app.use(metricsMiddleware);
 
 // Ruta de salud: Railway (y cualquier orquestador) la usa para saber si el
 // servicio está vivo. Debe responder rápido y sin depender de la base de datos.
+// Devuelve además el nombre del servicio y la hora, útil para confirmar de un
+// vistazo qué versión está respondiendo en un ambiente desplegado.
 app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'ok' });
+  res.status(200).json({
+    status: 'ok',
+    service: 'gestor-de-tareas',
+    timestamp: new Date().toISOString(),
+  });
 });
 
 // Métricas en formato Prometheus. Prometheus raspa esta ruta.
