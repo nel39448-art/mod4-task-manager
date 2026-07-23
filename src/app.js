@@ -1,14 +1,24 @@
 import express from 'express';
 import { getStore } from './store/index.js';
+import { register, metricsMiddleware } from './metrics.js';
 
 const app = express();
 
 app.use(express.json());
 
+// Mide cada petición para las métricas de Prometheus.
+app.use(metricsMiddleware);
+
 // Ruta de salud: Railway (y cualquier orquestador) la usa para saber si el
 // servicio está vivo. Debe responder rápido y sin depender de la base de datos.
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
+});
+
+// Métricas en formato Prometheus. Prometheus raspa esta ruta.
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
 // Exponer el array en memoria vía app.locals para que las pruebas puedan

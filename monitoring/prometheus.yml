@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # Raspa las métricas del backend dentro de la red de Compose.
+  # 'backend' es el nombre del servicio; 4000 su puerto interno.
+  - job_name: backend
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:4000"]

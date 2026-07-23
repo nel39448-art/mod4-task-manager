@@ -29,7 +29,10 @@ services:
       DATABASE_URL: postgresql://appuser:apppass@postgres:5432/appdb
       PORT: 4000
     ports:
-      - "4000:4000"
+      # 4001 en el host para no chocar con otro servicio local en el 4000
+      # (el puerto interno del contenedor sigue siendo 4000, que es al que
+      # apunta Prometheus dentro de la red de Compose).
+      - "4001:4000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,5 +47,33 @@ services:
     depends_on:
       - backend
 
+  # Observabilidad: Prometheus raspa las métricas del backend (/metrics)...
+  prometheus:
+    image: prom/prometheus:latest
+    restart: always
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - backend
+
+  # ...y Grafana las muestra en un tablero (usuario admin / contraseña admin).
+  grafana:
+    image: grafana/grafana:latest
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3300:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   postgres_data:
+  grafana_data:
